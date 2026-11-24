@@ -1,0 +1,22 @@
+{
+  "sheets": [
+    {
+      "sheet": "west",
+      "face_ids": ["A", "B"],
+      "seams": [
+        {"seam": "AC", "end": "a", "face": "A", "sign": 1},
+        {"seam": "BC", "end": "a", "face": "B", "sign": -1}
+      ],
+      "anchors": []
+    },
+    {
+      "sheet": "east",
+      "face_ids": ["C"],
+      "seams": [
+        {"seam": "AC", "end": "b", "face": "C", "sign": 1},
+        {"seam": "BC", "end": "b", "face": "C", "sign": 1}
+      ],
+      "anchors": [{"name": "MC", "face": "C", "sign": 1}]
+    }
+  ]
+}

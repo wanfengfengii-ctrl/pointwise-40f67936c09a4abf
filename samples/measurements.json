@@ -1,0 +1,8 @@
+{
+  "faces": [
+    {"face_id": "A", "quantity": 5},
+    {"face_id": "B", "quantity": 7},
+    {"face_id": "C", "quantity": 11}
+  ],
+  "relations": []
+}

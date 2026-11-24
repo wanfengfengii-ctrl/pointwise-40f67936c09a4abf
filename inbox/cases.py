@@ -36,9 +36,17 @@ class CaseStore:
         ordered = tuple(sorted(selected))
         if not ordered:
             raise ValueError('a case must select at least one receipt')
-        freezes = {self.receipts.load(receipt_id).packet.wire.freeze_id for receipt_id in ordered}
+        packets = [self.receipts.load(receipt_id).packet for receipt_id in ordered]
+        freezes = {packet.wire.freeze_id for packet in packets}
         if len(freezes) != 1:
             raise ValueError('selected receipts belong to different freezes')
+        versions = {packet.wire.version for packet in packets}
+        if len(versions) != 1:
+            raise ValueError('selected receipts mix packet versions')
+        if versions == {2}:
+            set_ids = {packet.set_id for packet in packets}
+            if len(set_ids) != 1:
+                raise ValueError('selected receipts belong to different sets')
         freeze_id = freezes.pop()
         with self.connection:
             cursor = self.connection.execute(

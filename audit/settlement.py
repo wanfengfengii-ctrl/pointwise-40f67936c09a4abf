@@ -3,6 +3,7 @@ from typing import Iterable
 
 from audit.coverage import CaseCoverage, collect_case_coverage
 from audit.orientation import GroupOrientation, resolve_orientations
+from audit.overlap import calculate_set_groups
 from audit.publication import FirstReceipt, Report, ReportStore
 from audit.seam_matching import match_received_seams
 from inbox.cases import CaseStore
@@ -42,6 +43,14 @@ def settle(cases: CaseStore, reports: ReportStore, case_id: int) -> tuple[Report
     if cases.connection is not reports.connection:
         raise ValueError('case and report stores must use the same offline connection')
     case = cases.load(case_id)
+    loaded = [cases.receipts.load(receipt_id) for receipt_id in case.receipt_ids]
+    versions = {receipt.packet.wire.version for receipt in loaded}
+    if len(versions) != 1:
+        raise ValueError('selected receipts mix packet versions')
+    if versions == {2}:
+        return reports.publish(
+            case.case_id, case.freeze_id, case.receipt_ids, calculate_set_groups(loaded),
+        )
     coverage = collect_case_coverage(case, cases.receipts)
     seams = match_received_seams(coverage)
     groups = calculate_group_totals(coverage, resolve_orientations(coverage, seams))

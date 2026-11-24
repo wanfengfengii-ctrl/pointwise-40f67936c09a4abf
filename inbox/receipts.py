@@ -1,14 +1,14 @@
 import sqlite3
 from dataclasses import dataclass
 
-from inbox.validation import ValidatedPacket, validate_packet
+from inbox.validation import ValidatedPacket, ValidatedSetPacket, validate_incoming
 from survey.faces import require_id
 
 
 @dataclass(frozen=True)
 class Receipt:
     receipt_id: int
-    packet: ValidatedPacket
+    packet: ValidatedPacket | ValidatedSetPacket
 
 
 class ReceiptStore:
@@ -25,7 +25,7 @@ class ReceiptStore:
         ''')
 
     def receive(self, raw: bytes) -> int:
-        packet = validate_packet(raw)
+        packet = validate_incoming(raw)
         issue_id = packet.wire.issue_id
         self.connection.execute('BEGIN IMMEDIATE')
         with self.connection:
@@ -50,7 +50,7 @@ class ReceiptStore:
         ).fetchone()
         if row is None:
             raise LookupError(f'unknown receipt {receipt_id}')
-        packet = validate_packet(row[1])
+        packet = validate_incoming(row[1])
         if packet.wire.issue_id != row[0]:
             raise ValueError(f'issue identity mismatch in receipt {receipt_id}')
         return Receipt(receipt_id, packet)

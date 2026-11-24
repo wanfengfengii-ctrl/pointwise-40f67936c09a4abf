@@ -3,10 +3,12 @@ from dataclasses import dataclass
 
 from audit.history import read_report
 from audit.settlement import settle
-from delivery.issue import issue
+from delivery.issue import issue, issue_set
 from delivery.plan import IssuePlan
+from delivery.reissue import reissue
 from field.anchors import Anchor
 from field.seams import SeamEnd
+from inbox.wire import decode_packet
 from survey.faces import Adjacency, Face
 from tests.fixtures import Offline, Source
 
@@ -118,6 +120,72 @@ def verify_fixture(name):
                     or read_report(offline.reports, report.report_id) != (report, first)):
                 raise AssertionError((name, indexes, expected, actual))
             print(f"{name} {indexes} {actual}")
+
+
+def _involved_receipts(sheets, faces, indexes, receipts):
+    wanted = set(faces)
+    return tuple(sorted(
+        receipts[index] for index in indexes if wanted & set(sheets[index].faces)
+    ))
+
+
+def verify_set_fixture(name):
+    """Run the V2 set pipeline on a fixture and compare groups per subset.
+
+    Status, net quantity and actual receipt provenance are checked for every
+    listed non-empty selection; original face letters only identify the
+    expected groups of the comparison input.
+    """
+    _, _, sheets, subsets = EXAMPLES[name]
+    source = Source(":memory:")
+    with closing(source.db):
+        freeze, plans = prepare(source, name)
+        set_id, packets = issue_set(source.inspections, source.archive, freeze, plans)
+        if type(set_id) is not int or set_id <= 0 or len(packets) != len(plans):
+            raise AssertionError((name, 'set', set_id, packets))
+        for plan, packet in zip(plans, packets):
+            wire = decode_packet(packet.raw)
+            if wire.version != 2 or set(wire.payload) != {'sheet', 'set_id', 'components'}:
+                raise AssertionError((name, 'payload', wire.payload))
+            if wire.payload['set_id'] != set_id or wire.payload['sheet'] != plan.sheet:
+                raise AssertionError((name, 'header', wire.payload))
+            if 'face_id' in packet.raw.decode('utf-8'):
+                raise AssertionError((name, 'face identifier leaked'))
+            if reissue(source.archive, packet.issue_id) != packet.raw:
+                raise AssertionError((name, 'reissue', packet.issue_id))
+    offline = Offline(":memory:")
+    with closing(offline.db):
+        receipts = tuple(offline.receipts.receive(packet.raw) for packet in packets)
+        for indexes, expected in subsets:
+            selected = tuple(receipts[index] for index in indexes)
+            case_id = offline.cases.select(selected)
+            report, first = settle(offline.cases, offline.reports, case_id)
+            actual = tuple(sorted(
+                (group['status'], group['net_quantity'], tuple(group['receipt_ids']))
+                for group in report.groups
+            ))
+            wanted = tuple(sorted(
+                (status, net, _involved_receipts(sheets, faces, indexes, receipts))
+                for faces, status, net in expected
+            ))
+            member_keys = [
+                (group['members'][0]['receipt_id'], group['members'][0]['component_id'])
+                for group in report.groups
+            ]
+            members_ok = all(
+                group['members'] == sorted(
+                    group['members'],
+                    key=lambda member: (member['receipt_id'], member['component_id']),
+                )
+                and group['receipt_ids'] == sorted(
+                    {member['receipt_id'] for member in group['members']})
+                for group in report.groups
+            )
+            if (actual != wanted or report.receipt_ids != selected
+                    or member_keys != sorted(member_keys) or not members_ok
+                    or read_report(offline.reports, report.report_id) != (report, first)):
+                raise AssertionError((name, indexes, wanted, actual))
+            print(f"{name} set{set_id} {indexes} {actual}")
 
 
 if __name__ == "__main__":
